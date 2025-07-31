@@ -49,12 +49,8 @@ run_training() {
 echo "Starting Adaptive FairGrad Training Experiments"
 echo "=============================================="
 
-# Experiment 1: FairGrad with threshold-based adaptive MTL
-echo "Experiment 1: FairGrad with threshold-based adaptive MTL"
-run_training $weights_threshold "true" $seed
-
-# Experiment 2: FairGrad with always MTL (no threshold)
-echo "Experiment 2: FairGrad with always MTL"
+# Experiment: FairGrad with always MTL (no threshold)
+echo "Experiment: FairGrad with always MTL"
 run_training $weights_threshold "false" $seed
 
 echo "All experiments started!"
