@@ -1,7 +1,7 @@
 """
-Cityscapes Adaptive Multi-Task Learning Trainer
+Cityscapes VarGrad Trainer
 
-This module implements an adaptive multi-task learning trainer for the Cityscapes dataset
+This module implements VarGrad trainer for the Cityscapes dataset
 that uses imbalance detection to determine when to apply MTL methods.
 
 Author: Anonymous
