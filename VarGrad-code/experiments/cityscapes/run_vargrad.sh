@@ -33,7 +33,7 @@ run_training() {
     fi
     
     log_file="trainlogs/fairgrad_alpha${alpha}_${thresh_suffix}${threshold}_sd${seed}_bs${batch_size}_${timestamp}.log"
-    cmd="python -u trainer_adaptive.py --method=$method --alpha=$alpha --beta=$beta --weights_threshold=$threshold --use_threshold=$use_thresh --seed=$seed --batch-size=$batch_size --n-epochs=$n_epochs --lr=$lr --N_steps=1 --data-path=./dataset"
+    cmd="python -u trainer_vargrad.py --method=$method --alpha=$alpha --beta=$beta --weights_threshold=$threshold --use_threshold=$use_thresh --seed=$seed --batch-size=$batch_size --n-epochs=$n_epochs --lr=$lr --N_steps=1 --data-path=./dataset"
     
     echo "Running: $cmd"
     echo "Log file: $log_file"
