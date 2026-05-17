@@ -1,9 +1,14 @@
-from methods.weight_methods import (
+from methods.weight_methods_vargrad import (
     METHODS,
+    WeightMethods,
+    WeightMethod,
     MGDA,
     STL,
     LinearScalarization,
     NashMTL,
     PCGrad,
     Uncertainty,
+    CAGrad,
+    FairGrad,
+    Vargrad,
 )

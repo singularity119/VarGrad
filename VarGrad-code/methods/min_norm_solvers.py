@@ -2,6 +2,12 @@ import numpy as np
 import torch
 
 
+# This code is from
+# Multi-Task Learning as Multi-Objective Optimization
+# Ozan Sener, Vladlen Koltun
+# Neural Information Processing Systems (NeurIPS) 2018
+# https://github.com/intel-isl/MultiObjectiveOptimization
+class MinNormSolver:
     MAX_ITER = 250
     STOP_CRIT = 1e-5
 
