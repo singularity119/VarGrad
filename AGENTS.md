@@ -1,14 +1,14 @@
 # Task
 
-在 `/root/VarGrad` 原始 VarGrad 项目基础上，直接面向 NYUv2 做最小侵入式扩展，用来重新验证 VarGrad + FairGrad + PSMGD 相关实验。
+在 `/root/VarGrad` 原始 VarGrad 项目基础上，做最小侵入式多数据集扩展，用来重新验证 VarGrad + FairGrad + PSMGD 相关实验。
 
-当前第一阶段优先聚焦一个完整方法链：
+当前阶段优先聚焦 FairGrad 线的可运行方法链：
 
 - Gradient preprocessing: `identity`, `vargrad`
 - Baseline solver: `fairgrad`
 - Weight scheduler: `every_step`, `psmgd_periodic`, `psmgd_dynamic`
 
-后续再按同一接口扩展：
+本阶段暂不实现下面 solver 的可组合重实现，只保留为后续扩展目标：
 
 - `uniform`
 - `mgda`
@@ -31,16 +31,19 @@
 
 # Current Repository Notes
 
-当前执行目标是新增 `/root/VarGrad/VarGrad-code/experiments/nyuv2/`，复用 `/root/Vargrad_PSMGD_modular/experiments/nyuv2` 的 dataset/model/trainer/run script 结构，但方法实现来自 `/root/VarGrad/VarGrad-code/methods/weight_methods_vargrad.py`。
+当前执行目标是让 `/root/VarGrad/VarGrad-code/experiments/{nyuv2,cityscapes,celeba,quantum_chemistry}/` 都能复用原项目数据流、trainer、模型、评估和 stats 保存逻辑运行 FairGrad 线实验。方法实现来自 `/root/VarGrad/VarGrad-code/methods/weight_methods_vargrad.py`。
 
-NYUv2 数据集路径：
+数据集路径：
 
 - `/root/autodl-tmp/dataset/nyuv2`
+- `/root/autodl-tmp/dataset/cityscapes2`
+- `/root/autodl-tmp/dataset/celeba`
+- `/root/autodl-tmp/dataset/qm9`
 
-输出路径必须与 modular 项目隔离：
+输出路径必须与 modular 项目隔离，统一使用：
 
-- `/root/autodl-tmp/exp_logs_save/vargrad_reimpl/nyuv2/save`
-- `/root/autodl-tmp/exp_logs_save/vargrad_reimpl/nyuv2/log`
+- `/root/autodl-tmp/exp_logs_save/vargrad_reimpl/<dataset>/save`
+- `/root/autodl-tmp/exp_logs_save/vargrad_reimpl/<dataset>/log`
 
 核心文件：
 
@@ -51,14 +54,23 @@ NYUv2 数据集路径：
 - `experiments/nyuv2/utils.py`
 - `experiments/nyuv2/trainer.py`
 - `experiments/nyuv2/run_vargrad_fairgrad_psmgd.sh`
-- `experiments/cityscapes/trainer_vargrad.py`
-- `experiments/cityscapes/run_vargrad.sh`
+- `experiments/cityscapes/trainer.py`
+- `experiments/cityscapes/run_vargrad_fairgrad_psmgd.sh`
+- `experiments/celeba/trainer.py`
+- `experiments/celeba/run_vargrad_fairgrad_psmgd.sh`
+- `experiments/quantum_chemistry/trainer.py`
+- `experiments/quantum_chemistry/run_vargrad_fairgrad_psmgd.sh`
 
-已知需要优先修正的问题：
+已知约束：
 
-- `methods/__init__.py` 当前引用 `methods.weight_methods`，但仓库中实际文件是 `methods/weight_methods_vargrad.py`。
-- `FairGrad` 当前内部硬编码 `beta=0.85`，后续应改为使用 trainer/CLI 传入的 VarGrad beta。
-- 原项目中的 VarGrad 逻辑分散写在各 solver 类里，本项目扩展时应保持这种组织风格，但抽出少量共享 helper，避免重复和不一致。
+- `methods/__init__.py` 必须导出 `methods.weight_methods_vargrad` 中的 `METHODS`、`WeightMethods` 和相关类。
+- `FairGrad` 必须使用 trainer/CLI 传入的 VarGrad `beta`，不要在 trainer 外重新硬编码。
+- 原项目中的 VarGrad 逻辑分散写在各 solver 类里，本项目扩展时应保持这种组织风格；不要直接照搬 `/root/Vargrad_PSMGD_modular` 的 `ComposableMTL` 作为中心类。
+- Cityscapes 的 canonical `experiments/cityscapes/trainer.py` 必须以原 `experiments/cityscapes/trainer_vargrad.py` 为基底保守适配，不要用 modular repo 的 Cityscapes trainer 直接替换。
+- Cityscapes 新实现不得保留原 `trainer_vargrad.py` 中 FAMO 权重不均衡比值作为 gate 的逻辑；PSMGD 动态触发只使用 `weight_methods_vargrad.py` 中相邻/刷新锚点修正梯度变化率。
+- Cityscapes 新实现应默认保留原 `trainer_vargrad.py` 在 `optimizer.step()` 后的一次 train-mode no-grad forward，以复刻 BatchNorm running stats 轨迹；该行为只由 `--post-step-train-forward` 控制，不恢复 FAMO gate 或 `update_prev_loss`。
+- 当前 Cityscapes 优先，正式三卡实验为 `vargrad + fairgrad + every_step`，seed `0/1/2`。
+- 旧版 modular-style 或 FAMO-gate 兼容路径产生的 everystep 结果都不是最终复现依据；重跑前应归档到带时间戳的 archive 目录。
 
 ---
 
@@ -287,6 +299,7 @@ $$
 - `methods/__init__.py`
 - `experiments/utils.py`
 - `experiments/cityscapes/trainer_vargrad.py`
+- `experiments/cityscapes/trainer.py`
 - 原始 run scripts
 
 避免新建一整套并行 trainer。
@@ -295,6 +308,7 @@ $$
 
 - 保留原 solver 类组织方式
 - 在 `weight_methods_vargrad.py` 中抽少量共享 helper
+- 对具体数据集优先从原项目已有 trainer 保守演进，而不是从 `/root/Vargrad_PSMGD_modular` 复制完整 trainer。
 - 第一阶段先完成 `FairGrad` 的全流程
 - 等 `fairgrad + vargrad + psmgd_periodic/dynamic` 被验证后，再推广到其他 solver
 
@@ -432,3 +446,24 @@ $$
 - 权重是否刷新
 - `psmgd_periodic` 是否严格按周期刷新
 - `psmgd_dynamic` 是否严格按阈值和方向刷新
+
+---
+
+## Current Validation / Launch Rules
+
+- 修改 Python 后使用 `/root/miniconda3/bin/python -m py_compile` 检查相关 trainer、`experiments/utils.py` 和 `methods/weight_methods_vargrad.py`。
+- 修改 shell 脚本后使用 `bash -n` 检查语法。
+- 启动正式 Cityscapes 三卡实验前，必须先确认 `/root/autodl-tmp/dataset/cityscapes2` 可被 loader 读取，并完成 1-epoch smoke。
+- Cityscapes smoke 日志中应出现 `[solver_update]`、`Final Performance` 和 post-step train forward 配置记录，且不应出现旧 FAMO gate 的模式、比例或阈值输出。
+- 正式 Cityscapes 实验使用：
+  - `PREPROCESSING=vargrad`
+  - `SOLVER=fairgrad`
+  - `SCHEDULER=every_step`
+  - `BETA=0.85`
+  - `ALPHA=2.0`
+  - `BATCH_SIZE=8`
+  - `EPOCHS=200`
+  - `LR=1e-4`
+  - `MODEL=mtan`
+  - `SEED=0/1/2` 分别绑定 `CUDA_VISIBLE_DEVICES=0/1/2`
+- 不要修改已完成实验日志或 stats。新日志写入 `vargrad_reimpl/<dataset>/log`，新 stats 写入 `vargrad_reimpl/<dataset>/save`。

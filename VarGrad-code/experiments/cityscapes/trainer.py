@@ -1,8 +1,7 @@
 """
 Cityscapes VarGrad Trainer
 
-This module implements VarGrad trainer for the Cityscapes dataset
-that uses imbalance detection to determine when to apply MTL methods.
+This module implements VarGrad trainer for the Cityscapes dataset.
 
 Author: Anonymous
 License: MIT
@@ -22,12 +21,15 @@ from tqdm import trange
 import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 from experiments.utils import (
+    build_experiment_output_stem,
     common_parser,
     extract_weight_method_parameters_from_args,
     get_device,
+    log_solver_update_event,
     set_logger,
     set_seed,
     str2bool,
+    write_u_telemetry_event,
 )
 
 # Local imports
@@ -74,7 +76,7 @@ def calc_loss(x_pred, x_output, task_type):
 #     return beta_start + (beta_end - beta_start) * (t / beta_decay_epochs)
 
 
-def main(path, lr, bs, device, N_steps):
+def main(path, lr, bs, device):
     # ----
     # Nets
     # ---
@@ -88,13 +90,19 @@ def main(path, lr, bs, device, N_steps):
         else "Standard training strategy without data augmentation."
     )
     logging.info(log_str)
+    logging.info(
+        "Post-step train-mode forward compatibility: %s",
+        args.post_step_train_forward,
+    )
 
     cityscapes_train_set = Cityscapes(
         root=path.as_posix(), train=True, augmentation=args.apply_augmentation
     )
     cityscapes_test_set = Cityscapes(root=path.as_posix(), train=False)
 
-    # train_loader = torch.utils.data.DataLoader(
+
+    
+     # train_loader = torch.utils.data.DataLoader(
     #     dataset=cityscapes_train_set, batch_size=bs, shuffle=True, num_workers=2
     # )
 
@@ -114,18 +122,6 @@ def main(path, lr, bs, device, N_steps):
     weight_method = WeightMethods(
         args.method, n_tasks=2, device=device, **weight_methods_parameters[args.method]
     )
-    
-    # Initialize imbalance detector (using FAMO logic)
-    # imbalance_detector_params = dict(
-    #     gamma=args.gamma,
-    #     w_lr=args.method_params_lr,
-    #     max_norm=args.max_norm
-    # )
-    # imbalance_detector = WeightMethods(
-    #     'famo', n_tasks=2, device=device, **imbalance_detector_params
-    # )
-    # FAMO detector disabled for this rerun; original block kept commented above.
-
     # optimizer
     optimizer = torch.optim.Adam(
        [
@@ -146,19 +142,21 @@ def main(path, lr, bs, device, N_steps):
 
     # some extra statistics we save during training
     loss_list = []
-    N = N_steps
-    count = 0
-    mtl_ratios = []
+    os.makedirs(args.save_dir, exist_ok=True)
+    u_telemetry_file = None
+    if getattr(args, "save_u_telemetry", False):
+        u_telemetry_name = build_experiment_output_stem(args)
+        u_telemetry_path = os.path.join(
+            args.save_dir, f"{u_telemetry_name}.u_telemetry.jsonl"
+        )
+        u_telemetry_file = open(u_telemetry_path, "w", buffering=1)
+        logging.info("Saving U_t telemetry to %s", u_telemetry_path)
     
     for epoch in epoch_iter:
         cost = np.zeros(12, dtype=np.float32)
-        mtl_steps = 0
-        total_steps = 0
         
         for j, batch in enumerate(train_loader):
             custom_step += 1
-            count += 1
-            total_steps += 1
             
             model.train()
             optimizer.zero_grad()
@@ -177,47 +175,36 @@ def main(path, lr, bs, device, N_steps):
                     calc_loss(train_pred[1], train_depth, "depth"),
                 )
             )
-            
-            # if count > 1:
-            #     imbalance_detector.method.update(losses)
-            #     weights_cur = imbalance_detector.method.get_imbalance(losses)
-            # else:
-            #     weights_cur = float('inf')
-            #
-            # if args.use_threshold:
-            #     use_mtl = (count == 1 or weights_cur > args.weights_threshold)
-            # else:
-            #     use_mtl = True
-            # FAMO detector / threshold gate disabled for this rerun.
-            use_mtl = True
 
-
-            if use_mtl:
-                mtl_steps += 1
-                loss, extra_outputs = weight_method.backward(
-                    losses=losses,
-                    shared_parameters=list(model.shared_parameters()),
-                    task_specific_parameters=list(model.task_specific_parameters()),
-                    last_shared_parameters=list(model.last_shared_parameters()),
-                    representation=features,
-                    beta=args.beta,
-                )
-            else:
-                losses.sum().backward()
+            loss, extra_outputs = weight_method.backward(
+                losses=losses,
+                shared_parameters=list(model.shared_parameters()),
+                task_specific_parameters=list(model.task_specific_parameters()),
+                last_shared_parameters=list(model.last_shared_parameters()),
+                representation=features,
+                beta=args.beta,
+            )
+            log_solver_update_event(
+                extra_outputs,
+                epoch=epoch,
+                batch_idx=j,
+                global_step=custom_step,
+                enabled=getattr(args, "log_solver_updates", True),
+            )
+            write_u_telemetry_event(
+                u_telemetry_file,
+                extra_outputs,
+                global_step=custom_step,
+            )
 
             loss_list.append(losses.detach().cpu())
             optimizer.step()
-            
-            # # update the record loss of imbalance detector
-            # with torch.no_grad():
-            #     train_pred = model(train_data, return_representation=False)
-            #     new_losses = torch.stack(
-            #         (
-            #             calc_loss(train_pred[0], train_label, "semantic"),
-            #             calc_loss(train_pred[1], train_depth, "depth"),
-            #         )
-            #     )
-            #     imbalance_detector.method.update_prev_loss(new_losses)
+
+            # if args.post_step_train_forward:
+            #     # Match the original Cityscapes trainer's train-mode post-step
+            #     # forward, which updates BatchNorm running statistics.
+            #     with torch.no_grad():
+            #         train_pred = model(train_data, return_representation=False)
 
             # accumulate label prediction for every pixel in training images
             conf_mat.update(train_pred[0].argmax(1).flatten(), train_label.flatten())
@@ -231,10 +218,6 @@ def main(path, lr, bs, device, N_steps):
                 f"[{epoch+1}  {j+1}/{train_batch}] semantic loss: {losses[0].item():.3f}, "
                 f"depth loss: {losses[1].item():.3f}, "
             )
-
-        # Store MTL usage statistics
-        mtl_ratio = mtl_steps / total_steps if total_steps > 0 else 0
-        mtl_ratios.append(mtl_ratio)
 
         # scheduler
         scheduler.step()
@@ -278,7 +261,6 @@ def main(path, lr, bs, device, N_steps):
             deltas[epoch] = test_delta_m
 
             # print results
-            threshold_status = "Threshold" if args.use_threshold else "Always MTL"
             print(
                 f"LOSS FORMAT: SEMANTIC_LOSS MEAN_IOU PIX_ACC | DEPTH_LOSS ABS_ERR REL_ERR"
             )
@@ -287,7 +269,7 @@ def main(path, lr, bs, device, N_steps):
                 f"| {avg_cost[epoch, 3]:.4f} {avg_cost[epoch, 4]:.4f} {avg_cost[epoch, 5]:.4f} | {avg_cost[epoch, 6]:.4f} "
                 f"TEST: {avg_cost[epoch, 7]:.4f} {avg_cost[epoch, 8]:.4f} {avg_cost[epoch, 9]:.4f} | "
                 f"{avg_cost[epoch, 10]:.4f} {avg_cost[epoch, 11]:.4f}"
-                f"| {test_delta_m:.3f} | MTL Ratio: {mtl_ratio:.3f} | Mode: {threshold_status}"
+                f"| {test_delta_m:.3f}"
             )
 
             if wandb.run is not None:
@@ -305,7 +287,6 @@ def main(path, lr, bs, device, N_steps):
                 wandb.log({"Test Absolute Error": avg_cost[epoch, 10]}, step=epoch)
                 wandb.log({"Test Relative Error": avg_cost[epoch, 11]}, step=epoch)
                 wandb.log({"Test ∆m": test_delta_m}, step=epoch)
-                wandb.log({"MTL Usage Ratio": mtl_ratio}, step=epoch)
 
             keys = [
                 "Train Semantic Loss",
@@ -323,47 +304,39 @@ def main(path, lr, bs, device, N_steps):
                 "Test Relative Error",
             ]
 
-            # Generate filename based on method and threshold
-            threshold_suffix = "thresh" if args.use_threshold else "always"
-            if "famo" in args.method:
-                name = f"{args.method}_gamma{args.gamma}_{threshold_suffix}{args.weights_threshold}_sd{args.seed}_N{args.N_steps}_bs{bs}"
-            elif "fairgrad" in args.method:
-                name = f"{args.method}_alpha{args.alpha}_{threshold_suffix}{args.weights_threshold}_sd{args.seed}_N{args.N_steps}_bs{bs}"
-            else:
-                name = f"{args.method}_{threshold_suffix}{args.weights_threshold}_sd{args.seed}_N{args.N_steps}_bs{bs}"
-
-            # Create save directory if it doesn't exist
-            os.makedirs("./save", exist_ok=True)
+            name = build_experiment_output_stem(args)
             
             torch.save({
                 "delta_m": deltas,
                 "keys": keys,
                 "avg_cost": avg_cost,
                 "losses": loss_list,
-                "mtl_ratios": mtl_ratios,
-            }, f"./save/{name}.stats")
+            }, os.path.join(args.save_dir, f"{name}.stats"))
+
+    if u_telemetry_file is not None:
+        u_telemetry_file.close()
 
     print("Final Performance: ")
     print('TEST: {:.4f} {:.4f} {:.4f} {:.4f} {:.4f} {:.4f} {:.4f}'
             .format(np.mean(avg_cost[-10:, 6]), np.mean(avg_cost[-10:, 7]), np.mean(avg_cost[-10:, 8]),
                     np.mean(avg_cost[-10:, 9]), np.mean(avg_cost[-10:, 10]), np.mean(avg_cost[-10:, 11]), np.mean(deltas[-10:])))
-    print(f"Average MTL Usage Ratio: {np.mean(mtl_ratios):.3f}")
 
 
 if __name__ == "__main__":
-    parser = ArgumentParser("Cityscapes Adaptive Multi-Task Learning", parents=[common_parser])
+    parser = ArgumentParser("Cityscapes VarGrad FairGrad", parents=[common_parser])
     parser.set_defaults(
         data_path=os.path.join(os.getcwd(), "dataset"),
         lr=1e-4,
         n_epochs=200,
         batch_size=8,
+        save_dir="/root/autodl-tmp/exp_logs_save/vargrad_reimpl/cityscapes/save",
     )
     
     # Add custom arguments
     parser.add_argument(
         "--beta",
         type=float,
-        default=0.75,
+        default=0.85,
         help="Beta parameter for Vargrad method",
     )
     parser.add_argument(
@@ -374,28 +347,19 @@ if __name__ == "__main__":
         help="Model type",
     )
     parser.add_argument(
-        "--N_steps",
-        type=int,
-        default=1,
-        help="N_steps",
-    )
-    parser.add_argument(
-        "--weights_threshold",
-        type=float,
-        default=1.5,
-        help="Threshold for deciding when to use MTL",
-    )
-    parser.add_argument(
-        "--use_threshold",
-        type=str2bool,
-        default=True,
-        help="Whether to use threshold-based adaptive MTL (False = always use MTL)",
-    )
-    parser.add_argument(
         "--apply-augmentation", 
         type=str2bool, 
         default=True, 
         help="Data augmentations"
+    )
+    parser.add_argument(
+        "--post-step-train-forward",
+        type=str2bool,
+        default=True,
+        help=(
+            "Run one no-grad train-mode forward after optimizer.step() to match "
+            "the original Cityscapes trainer BatchNorm/statistics trajectory."
+        ),
     )
     parser.add_argument(
         "--wandb_project", 
@@ -419,7 +383,7 @@ if __name__ == "__main__":
         wandb.init(project=args.wandb_project, entity=args.wandb_entity, config=args)
 
     device = get_device(gpus=args.gpu)
-    main(path=args.data_path, lr=args.lr, bs=args.batch_size, device=device, N_steps=args.N_steps)
+    main(path=args.data_path, lr=args.lr, bs=args.batch_size, device=device)
 
     if wandb.run is not None:
         wandb.finish() 

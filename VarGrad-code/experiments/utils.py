@@ -233,11 +233,9 @@ def log_solver_update_event(extra_outputs, epoch, batch_idx, global_step, enable
     if not extra_outputs.get("updated_weights", False):
         return
 
-    weights = _to_serializable(extra_outputs.get("weights"))
-    candidate_weights = _to_serializable(extra_outputs.get("candidate_weights"))
     logging.info(
         "[solver_update] global_step=%s scheduler_step=%s epoch=%s batch=%s "
-        "scheduler=%s preprocessing=%s solver=%s weights=%s candidate_weights=%s",
+        "scheduler=%s preprocessing=%s solver=%s dynamic_score=%s threshold=%s",
         global_step,
         extra_outputs.get("scheduler_step"),
         epoch,
@@ -245,8 +243,8 @@ def log_solver_update_event(extra_outputs, epoch, batch_idx, global_step, enable
         extra_outputs.get("scheduler"),
         extra_outputs.get("preprocessing"),
         extra_outputs.get("solver"),
-        weights,
-        candidate_weights,
+        extra_outputs.get("dynamic_refresh_score"),
+        extra_outputs.get("dynamic_refresh_threshold"),
     )
 
 
@@ -342,6 +340,10 @@ def extract_weight_method_parameters_from_args(args):
             famo=dict(gamma=args.gamma,
                       w_lr=args.method_params_lr,
                       max_norm=args.max_norm),
+            fairgrad_original=dict(
+                alpha=args.alpha,
+                max_norm=args.max_norm,
+            ),
             fairgrad=dict(
                 alpha=args.alpha,
                 max_norm=args.max_norm,

@@ -1249,6 +1249,225 @@ class FairGrad(WeightMethod):
         return weighted_loss, extra_outputs
 
 
+class FairGradOriginal(WeightMethod):
+    def __init__(self, n_tasks, device: torch.device, alpha=1.0, max_norm=1.0):
+        super().__init__(n_tasks, device=device)
+        self.alpha = alpha
+        self.max_norm = max_norm
+        self.last_grads = None
+        self.exp_avg = None
+        self.step = 1
+        self.grad_stats_history = []  # 添加这行
+        self.mars_stats_history = []  # 添加这行
+
+    def get_weighted_loss(
+        self,
+        losses,
+        shared_parameters,
+        **kwargs,
+    ):
+        """
+        Parameters
+        ----------
+        losses :
+        shared_parameters : shared parameters
+        kwargs :
+        Returns
+        -------
+        """
+        # NOTE: we allow only shared params for now. Need to see paper for other options.
+        grad_dims = []
+        for param in shared_parameters:
+            grad_dims.append(param.data.numel())
+        grads = torch.Tensor(sum(grad_dims), self.n_tasks).to(self.device)
+
+        for i in range(self.n_tasks):
+            if i < self.n_tasks - 1:
+                losses[i].backward(retain_graph=True)
+            else:
+                losses[i].backward()
+            self.grad2vec(shared_parameters, grads, grad_dims, i)
+            # multi_task_model.zero_grad_shared_modules()
+            for p in shared_parameters:
+                p.grad = None
+             
+        # # 计算处理前的梯度统计
+        # grad_norm_before = torch.norm(grads)
+        # grad_mean_before = torch.mean(grads)
+        # grad_std_before = torch.std(grads)
+        
+        # # 计算每个任务的梯度方向（单位向量）
+        # grad_directions_before = []
+        # for i in range(self.n_tasks):
+        #     task_grad = grads[:, i]
+        #     task_norm = torch.norm(task_grad)
+        #     if task_norm > 0:
+        #         direction = task_grad / task_norm
+        #     else:
+        #         direction = torch.zeros_like(task_grad)
+        #     grad_directions_before.append(direction)
+        
+        # 直接调用Vargrad处理梯度
+        grads, self.last_grads, self.exp_avg = Vargrad(
+            grads,
+            last_grads=self.last_grads,
+            exp_avg=self.exp_avg,
+            step=self.step,
+            beta=0.85,
+            gamma=1.0,
+            eps=1e-8
+        )
+        
+        # 第二步：FairGrad处理（计算任务权重）
+        grad_update, GTG, w_cpu = self.fairgrad(grads, alpha=self.alpha)
+        
+        # 第三步：将grad_update投影回各个任务梯度方向
+      #  last_grads = self.project_grad_update_to_tasks(grad_update, grads)
+        
+        # # 计算处理后的梯度统计（MARS处理后的）
+        # grad_norm_after = torch.norm(grads)
+        # grad_mean_after = torch.mean(grads)
+        # grad_std_after = torch.std(grads)
+        
+        # # 计算每个任务的梯度方向
+        # grad_directions_after = []
+        # for i in range(self.n_tasks):
+        #     task_grad = grads[:, i]
+        #     task_norm = torch.norm(task_grad)
+        #     if task_norm > 0:
+        #         direction = task_grad / task_norm
+        #     else:
+        #         direction = torch.zeros_like(task_grad)
+        #     grad_directions_after.append(direction)
+        
+        # # 计算方向变化（余弦相似度）
+        # direction_changes = []
+        # for i in range(self.n_tasks):
+        #     cos_sim = torch.dot(grad_directions_before[i], grad_directions_after[i])
+        #     angle_change = torch.acos(torch.clamp(cos_sim, -1, 1)) * 180 / torch.pi
+        #     direction_changes.append(angle_change.item())
+        
+        # # 打印统计信息
+        # print(f"Step {self.step}:")
+        # print(f"梯度范数: {grad_norm_before:.6f} -> {grad_norm_after:.6f} (ratio: {grad_norm_after/grad_norm_before:.4f})")
+        # print(f"梯度均值: {grad_mean_before:.6f} -> {grad_mean_after:.6f}")
+        # print(f"梯度标准差: {grad_std_before:.6f} -> {grad_std_after:.6f} (ratio: {grad_std_after/grad_std_before:.4f})")
+        # print("方向变化角度:")
+        # for i in range(self.n_tasks):
+        #     print(f"  Task {i}: {direction_changes[i]:.2f}°")
+        
+        # # 保存数据用于绘图
+        # grad_stats = {
+        #     'step': self.step,
+        #     'norm_before': grad_norm_before.item(),
+        #     'norm_after': grad_norm_after.item(),
+        #     'std_before': grad_std_before.item(),
+        #     'std_after': grad_std_after.item(),
+        #     'direction_changes': direction_changes,
+        #     'task_norms_before': [torch.norm(grads[:, i]).item() for i in range(self.n_tasks)],
+        #     'task_norms_after': [torch.norm(grads[:, i]).item() for i in range(self.n_tasks)]
+        # }
+        
+        # # 添加到历史记录
+        # self.grad_stats_history.append(grad_stats)
+        
+        self.step += 1
+        
+        # # 保存投影后的梯度作为last_grads
+        # if hasattr(self, 'last_grads') and self.last_grads is not None:
+        #     self.last_grads = last_grads.clone()
+        # else:
+        #     raise ValueError("last_grads is not initialized")
+        
+        self.overwrite_grad(shared_parameters, grad_update, grad_dims)
+        return GTG, w_cpu
+
+    def project_grad_update_to_tasks(self, grad_update, original_grads):
+        """
+        将FairGrad的grad_update投影回各个任务梯度方向
+        """
+        n_tasks = original_grads.shape[1]
+        projected_grads = torch.zeros_like(original_grads)
+        
+        for i in range(n_tasks):
+            task_grad = original_grads[:, i]
+            task_norm = torch.norm(task_grad)
+            
+            if task_norm > 0:
+                # 计算grad_update在task_grad方向上的投影
+               # projection_coeff = torch.dot(grad_update, task_grad) / (task_norm ** 2)
+              #  projected_grads[:, i] = projection_coeff * task_grad
+                projected_grads[:, i] = torch.dot(grad_update, task_grad) / (task_norm)
+            else:
+                projected_grads[:, i] = torch.zeros_like(task_grad)
+        
+        return projected_grads
+
+    def fairgrad(self, grads, alpha=1.0):
+        GG = grads.t().mm(grads).cpu()  # [num_tasks, num_tasks]
+
+        x_start = np.ones(self.n_tasks) / self.n_tasks
+        A = GG.data.cpu().numpy()
+
+        def objfn(x):
+            # return np.power(np.dot(A, x), alpha) - 1 / x
+            return np.dot(A, x) - np.power(1 / x, 1 / alpha)
+
+        res = least_squares(objfn, x_start, bounds=(0, np.inf))
+        w_cpu = res.x
+        ww = torch.Tensor(w_cpu).to(grads.device)
+        g = (grads * ww.view(1, -1)).sum(1)
+        return g, GG.data.cpu().numpy(), w_cpu
+
+
+    @staticmethod
+    def grad2vec(shared_params, grads, grad_dims, task):
+        # store the gradients
+        grads[:, task].fill_(0.0)
+        cnt = 0
+        # for mm in m.shared_modules():
+        #     for p in mm.parameters():
+
+        for param in shared_params:
+            grad = param.grad
+            if grad is not None:
+                grad_cur = grad.data.detach().clone()
+                beg = 0 if cnt == 0 else sum(grad_dims[:cnt])
+                en = sum(grad_dims[: cnt + 1])
+                grads[beg:en, task].copy_(grad_cur.data.view(-1))
+            cnt += 1
+
+    def overwrite_grad(self, shared_parameters, newgrad, grad_dims):
+        newgrad = newgrad * self.n_tasks  # to match the sum loss
+        cnt = 0
+
+        # for mm in m.shared_modules():
+        #     for param in mm.parameters():
+        for param in shared_parameters:
+            beg = 0 if cnt == 0 else sum(grad_dims[:cnt])
+            en = sum(grad_dims[: cnt + 1])
+            this_grad = newgrad[beg:en].contiguous().view(param.data.size())
+            param.grad = this_grad.data.clone()
+            cnt += 1
+
+    def backward(
+        self,
+        losses: torch.Tensor,
+        parameters: Union[List[torch.nn.parameter.Parameter], torch.Tensor] = None,
+        shared_parameters: Union[
+            List[torch.nn.parameter.Parameter], torch.Tensor
+        ] = None,
+        task_specific_parameters: Union[
+            List[torch.nn.parameter.Parameter], torch.Tensor
+        ] = None,
+        **kwargs,
+    ):
+        GTG, w = self.get_weighted_loss(losses, shared_parameters)
+        if self.max_norm > 0:
+            torch.nn.utils.clip_grad_norm_(shared_parameters, self.max_norm)
+        return None, {"GTG": GTG, "weights": w}  # NOTE: to align with all other weight methods
+
+
 class GradDrop(WeightMethod):
     def __init__(self, n_tasks, device: torch.device, max_norm=1.0):
         super().__init__(n_tasks, device=device)
@@ -1742,6 +1961,7 @@ METHODS = dict(
     nashmtl=NashMTL,
     famo=FAMO,
     fairgrad=FairGrad,
+    fairgrad_original=FairGradOriginal,
 )
 
 
