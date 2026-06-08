@@ -3,19 +3,21 @@ set -euo pipefail
 
 REPO_ROOT="${REPO_ROOT:-/root/VarGrad/VarGrad-code}"
 LAUNCHER="$REPO_ROOT/experiments/celeba/run_vargrad_fairgrad_psmgd.sh"
-SAVE_DIR="${SAVE_DIR:-/root/autodl-tmp/exp_logs_save/vargrad_reimpl/celeba/save}"
-LOG_ROOT="${LOG_ROOT:-/root/autodl-tmp/exp_logs_save/vargrad_reimpl/celeba/log}"
-RUN_ROOT="${RUN_ROOT:-/root/autodl-tmp/exp_logs_save/vargrad_reimpl/celeba/batch_runs}"
+BASE_OUTPUT_ROOT="${BASE_OUTPUT_ROOT:-/root/autodl-tmp/exp_logs_save/vargrad_reimpl/celeba}"
 PYTHON_BIN="${PYTHON_BIN:-/root/miniconda3/bin/python}"
 
-mkdir -p "$SAVE_DIR" "$LOG_ROOT" "$RUN_ROOT"
-
-RUN_ID="${RUN_ID:-celeba_ordered_$(date +%Y%m%d_%H%M%S)}"
-RUN_DIR="$RUN_ROOT/$RUN_ID"
+run_stamp="${RUN_STAMP:-$(date +%Y%m%d_%H%M%S)}"
+round_name="${ROUND_NAME:-round_${run_stamp}}"
+RUN_ROOT="${RUN_ROOT:-${BASE_OUTPUT_ROOT}/rounds/${round_name}}"
+SAVE_DIR="${SAVE_DIR:-${RUN_ROOT}/save}"
+LOG_ROOT="${LOG_ROOT:-${RUN_ROOT}/log}"
+RUN_ID="${RUN_ID:-ordered_sweep}"
+RUN_DIR="${RUN_DIR:-$RUN_ROOT/$RUN_ID}"
 ARCHIVE_DIR="$RUN_DIR/archive_existing"
 BATCH_LOG="$RUN_DIR/batch.log"
 STATE_FILE="$RUN_DIR/state.tsv"
 SUMMARY_FILE="$RUN_DIR/summary.tsv"
+mkdir -p "$SAVE_DIR" "$LOG_ROOT" "$RUN_ROOT"
 mkdir -p "$RUN_DIR" "$ARCHIVE_DIR"
 
 exec > >(tee -a "$BATCH_LOG") 2>&1
@@ -126,6 +128,9 @@ launch_one() {
   PSMGD_DYNAMIC_THRESHOLD="$threshold" \
   SAVE_U_TELEMETRY="$save_telemetry" \
   PYTHON_BIN="$PYTHON_BIN" \
+  RUN_ROOT="$RUN_ROOT" \
+  SAVE_DIR="$SAVE_DIR" \
+  LOG_ROOT="$LOG_ROOT" \
   bash "$LAUNCHER"
 
   pid=""

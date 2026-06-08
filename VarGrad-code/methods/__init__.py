@@ -10,5 +10,7 @@ from methods.weight_methods_vargrad import (
     Uncertainty,
     CAGrad,
     FairGrad,
+    FairGradOriginal,
+    FairGradOriginalComposable,
     Vargrad,
 )

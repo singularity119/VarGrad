@@ -5,7 +5,7 @@ REPO_ROOT="${REPO_ROOT:-/root/VarGrad/VarGrad-code}"
 DATA_ROOT="${DATA_ROOT:-/root/autodl-tmp/dataset/qm9}"
 BASE_OUTPUT_ROOT="${BASE_OUTPUT_ROOT:-/root/autodl-tmp/exp_logs_save/vargrad_reimpl/quantum_chemistry}"
 
-method="${METHOD:-fairgrad}"
+method="${METHOD:-fairgrad_original_composable}"
 preprocessing="${PREPROCESSING:-vargrad}"
 solver="${SOLVER:-fairgrad}"
 scheduler="${SCHEDULER:-psmgd_periodic}"
@@ -70,12 +70,17 @@ cd "$REPO_ROOT/experiments/quantum_chemistry"
 export PYTHONPATH="$REPO_ROOT"
 export OMP_NUM_THREADS="${OMP_NUM_THREADS:-8}"
 
+solver_tag="$solver"
+if [[ "$method" == "fairgrad_original_composable" ]]; then
+  solver_tag="origfg_comp_${solver}"
+fi
+
 if [[ "$scheduler" == "psmgd_periodic" ]]; then
-  run_name="vargrad_reimpl_${preprocessing}_beta${beta}_${solver}_alpha${alpha}_psmgd_R${psmgd_R}_a${psmgd_alpha}_sd${seed}"
+  run_name="vargrad_reimpl_${preprocessing}_beta${beta}_${solver_tag}_alpha${alpha}_psmgd_R${psmgd_R}_a${psmgd_alpha}_sd${seed}"
 elif [[ "$scheduler" == "psmgd_dynamic" ]]; then
-  run_name="vargrad_reimpl_${preprocessing}_beta${beta}_${solver}_alpha${alpha}_psmgd_dynamic_${psmgd_dynamic_metric}_${psmgd_dynamic_direction}_thr${psmgd_dynamic_threshold}_a${psmgd_alpha}_sd${seed}"
+  run_name="vargrad_reimpl_${preprocessing}_beta${beta}_${solver_tag}_alpha${alpha}_psmgd_dynamic_${psmgd_dynamic_metric}_${psmgd_dynamic_direction}_thr${psmgd_dynamic_threshold}_a${psmgd_alpha}_sd${seed}"
 else
-  run_name="vargrad_reimpl_${preprocessing}_beta${beta}_${solver}_alpha${alpha}_${scheduler}_sd${seed}"
+  run_name="vargrad_reimpl_${preprocessing}_beta${beta}_${solver_tag}_alpha${alpha}_${scheduler}_sd${seed}"
 fi
 
 log_file="$LOG_ROOT/${run_name}.log"

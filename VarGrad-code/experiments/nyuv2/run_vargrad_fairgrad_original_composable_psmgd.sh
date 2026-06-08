@@ -2,10 +2,10 @@
 set -euo pipefail
 
 REPO_ROOT="${REPO_ROOT:-/root/VarGrad/VarGrad-code}"
-DATA_ROOT="${DATA_ROOT:-/root/autodl-tmp/dataset/qm9}"
-BASE_OUTPUT_ROOT="${BASE_OUTPUT_ROOT:-/root/autodl-tmp/exp_logs_save/vargrad_reimpl/quantum_chemistry}"
+DATA_ROOT="${DATA_ROOT:-/root/autodl-tmp/dataset/nyuv2}"
+BASE_OUTPUT_ROOT="${BASE_OUTPUT_ROOT:-/root/autodl-tmp/exp_logs_save/vargrad_reimpl/nyuv2}"
 
-method="${METHOD:-fairgrad}"
+method="${METHOD:-fairgrad_original_composable}"
 preprocessing="${PREPROCESSING:-vargrad}"
 solver="${SOLVER:-fairgrad}"
 scheduler="${SCHEDULER:-psmgd_periodic}"
@@ -24,9 +24,7 @@ else
   psmgd_dynamic_direction="below"
 fi
 
-if [[ "$scheduler" != "psmgd_dynamic" ]]; then
-  psmgd_dynamic_threshold="${PSMGD_DYNAMIC_THRESHOLD:-0}"
-elif [[ -n "${PSMGD_DYNAMIC_THRESHOLD:-}" ]]; then
+if [[ -n "${PSMGD_DYNAMIC_THRESHOLD:-}" ]]; then
   psmgd_dynamic_threshold="$PSMGD_DYNAMIC_THRESHOLD"
 else
   case "${psmgd_dynamic_metric}:${psmgd_dynamic_direction}" in
@@ -37,10 +35,10 @@ else
       psmgd_dynamic_threshold="1.096"
       ;;
     step_rel_fro:below)
-      psmgd_dynamic_threshold="${PSMGD_DYNAMIC_THRESHOLD:-0.438214224577}"
+      psmgd_dynamic_threshold="1.12"
       ;;
     step_rel_fro:above)
-      psmgd_dynamic_threshold="${PSMGD_DYNAMIC_THRESHOLD:-2.17024636269}"
+      psmgd_dynamic_threshold="1.76"
       ;;
     *)
       echo "Unsupported PSMGD dynamic metric/direction: ${psmgd_dynamic_metric}/${psmgd_dynamic_direction}" >&2
@@ -50,12 +48,11 @@ else
 fi
 
 seed="${SEED:-0}"
-batch_size="${BATCH_SIZE:-120}"
-epochs="${EPOCHS:-300}"
-lr="${LR:-1e-3}"
-scale_y="${SCALE_Y:-true}"
+batch_size="${BATCH_SIZE:-2}"
+epochs="${EPOCHS:-200}"
+lr="${LR:-1e-4}"
+model="${MODEL:-mtan}"
 save_u_telemetry="${SAVE_U_TELEMETRY:-false}"
-log_solver_updates="${LOG_SOLVER_UPDATES:-true}"
 python_bin="${PYTHON_BIN:-/root/miniconda3/bin/python}"
 
 run_stamp="${RUN_STAMP:-$(date +%Y%m%d_%H%M%S)}"
@@ -65,17 +62,22 @@ SAVE_DIR="${SAVE_DIR:-${RUN_ROOT}/save}"
 LOG_ROOT="${LOG_ROOT:-${RUN_ROOT}/log}"
 
 mkdir -p "$SAVE_DIR"
-mkdir -p "$LOG_ROOT/launch"
-cd "$REPO_ROOT/experiments/quantum_chemistry"
+mkdir -p "$LOG_ROOT"
+cd "$REPO_ROOT/experiments/nyuv2"
 export PYTHONPATH="$REPO_ROOT"
 export OMP_NUM_THREADS="${OMP_NUM_THREADS:-8}"
 
+solver_tag="$solver"
+if [[ "$method" == "fairgrad_original_composable" ]]; then
+  solver_tag="origfg_comp_${solver}"
+fi
+
 if [[ "$scheduler" == "psmgd_periodic" ]]; then
-  run_name="vargrad_reimpl_${preprocessing}_beta${beta}_${solver}_alpha${alpha}_psmgd_R${psmgd_R}_a${psmgd_alpha}_sd${seed}"
+  run_name="vargrad_reimpl_${preprocessing}_beta${beta}_${solver_tag}_alpha${alpha}_psmgd_R${psmgd_R}_a${psmgd_alpha}_sd${seed}"
 elif [[ "$scheduler" == "psmgd_dynamic" ]]; then
-  run_name="vargrad_reimpl_${preprocessing}_beta${beta}_${solver}_alpha${alpha}_psmgd_dynamic_${psmgd_dynamic_metric}_${psmgd_dynamic_direction}_thr${psmgd_dynamic_threshold}_a${psmgd_alpha}_sd${seed}"
+  run_name="vargrad_reimpl_${preprocessing}_beta${beta}_${solver_tag}_alpha${alpha}_psmgd_dynamic_${psmgd_dynamic_metric}_${psmgd_dynamic_direction}_thr${psmgd_dynamic_threshold}_a${psmgd_alpha}_sd${seed}"
 else
-  run_name="vargrad_reimpl_${preprocessing}_beta${beta}_${solver}_alpha${alpha}_${scheduler}_sd${seed}"
+  run_name="vargrad_reimpl_${preprocessing}_beta${beta}_${solver_tag}_alpha${alpha}_${scheduler}_sd${seed}"
 fi
 
 log_file="$LOG_ROOT/${run_name}.log"
@@ -96,12 +98,11 @@ nohup "$python_bin" -u trainer.py \
   --batch-size "$batch_size" \
   --n-epochs "$epochs" \
   --lr "$lr" \
-  --scale-y "$scale_y" \
+  --model "$model" \
   --data-path "$DATA_ROOT" \
   --save-dir "$SAVE_DIR" \
   --save-u-telemetry "$save_u_telemetry" \
-  --log-solver-updates "$log_solver_updates" \
   > "$log_file" 2>&1 < /dev/null &
 
-echo "Started QM9 run: $log_file"
+echo "Started NYUv2 run: $log_file"
 echo "Run root: $RUN_ROOT"

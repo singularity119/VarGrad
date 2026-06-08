@@ -3,8 +3,7 @@ set -euo pipefail
 
 REPO_ROOT="${REPO_ROOT:-/root/VarGrad/VarGrad-code}"
 DATA_ROOT="${DATA_ROOT:-/root/autodl-tmp/dataset/celeba}"
-SAVE_DIR="${SAVE_DIR:-/root/autodl-tmp/exp_logs_save/vargrad_reimpl/celeba/save}"
-LOG_ROOT="${LOG_ROOT:-/root/autodl-tmp/exp_logs_save/vargrad_reimpl/celeba/log}"
+BASE_OUTPUT_ROOT="${BASE_OUTPUT_ROOT:-/root/autodl-tmp/exp_logs_save/vargrad_reimpl/celeba}"
 
 method="${METHOD:-fairgrad}"
 preprocessing="${PREPROCESSING:-vargrad}"
@@ -55,6 +54,12 @@ lr="${LR:-3e-4}"
 save_u_telemetry="${SAVE_U_TELEMETRY:-false}"
 python_bin="${PYTHON_BIN:-/root/miniconda3/bin/python}"
 
+run_stamp="${RUN_STAMP:-$(date +%Y%m%d_%H%M%S)}"
+round_name="${ROUND_NAME:-round_${run_stamp}}"
+RUN_ROOT="${RUN_ROOT:-${BASE_OUTPUT_ROOT}/rounds/${round_name}}"
+SAVE_DIR="${SAVE_DIR:-${RUN_ROOT}/save}"
+LOG_ROOT="${LOG_ROOT:-${RUN_ROOT}/log}"
+
 mkdir -p "$SAVE_DIR"
 mkdir -p "$LOG_ROOT/launch"
 cd "$REPO_ROOT/experiments/celeba"
@@ -93,3 +98,4 @@ nohup "$python_bin" -u trainer.py \
   > "$log_file" 2>&1 < /dev/null &
 
 echo "Started CelebA run: $log_file"
+echo "Run root: $RUN_ROOT"

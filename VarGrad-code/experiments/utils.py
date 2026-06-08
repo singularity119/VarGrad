@@ -293,13 +293,16 @@ def resolve_psmgd_dynamic_threshold_from_args(args):
 
 
 def build_experiment_output_stem(args):
-    if args.method == "fairgrad":
+    if args.method in ["fairgrad", "fairgrad_original_composable"]:
         config = resolve_fairgrad_config_from_args(args)
         beta = getattr(args, "beta", 0.85)
+        solver_tag = config["solver"]
+        if args.method == "fairgrad_original_composable":
+            solver_tag = f"origfg_comp_{solver_tag}"
         if config["scheduler"] == "psmgd_periodic":
             return (
                 f"vargrad_reimpl_{config['preprocessing']}_beta{beta}"
-                f"_fairgrad_alpha{args.alpha}_psmgd_R{args.psmgd_R}"
+                f"_{solver_tag}_alpha{args.alpha}_psmgd_R{args.psmgd_R}"
                 f"_a{args.psmgd_alpha}_sd{args.seed}"
             )
         if config["scheduler"] == "psmgd_dynamic":
@@ -307,13 +310,13 @@ def build_experiment_output_stem(args):
             threshold = resolve_psmgd_dynamic_threshold_from_args(args)
             return (
                 f"vargrad_reimpl_{config['preprocessing']}_beta{beta}"
-                f"_fairgrad_alpha{args.alpha}_psmgd_dynamic"
+                f"_{solver_tag}_alpha{args.alpha}_psmgd_dynamic"
                 f"_{args.psmgd_dynamic_metric}_{direction}_thr{threshold}"
                 f"_a{args.psmgd_alpha}_sd{args.seed}"
             )
         return (
             f"vargrad_reimpl_{config['preprocessing']}_beta{beta}"
-            f"_fairgrad_alpha{args.alpha}_{config['scheduler']}_sd{args.seed}"
+            f"_{solver_tag}_alpha{args.alpha}_{config['scheduler']}_sd{args.seed}"
         )
 
     if "fairgrad" in args.method:
@@ -343,6 +346,19 @@ def extract_weight_method_parameters_from_args(args):
             fairgrad_original=dict(
                 alpha=args.alpha,
                 max_norm=args.max_norm,
+            ),
+            fairgrad_original_composable=dict(
+                alpha=args.alpha,
+                max_norm=args.max_norm,
+                preprocessing=fairgrad_config["preprocessing"],
+                solver=fairgrad_config["solver"],
+                scheduler=fairgrad_config["scheduler"],
+                beta=getattr(args, "beta", 0.85),
+                psmgd_R=args.psmgd_R,
+                psmgd_alpha=args.psmgd_alpha,
+                psmgd_dynamic_threshold=psmgd_dynamic_threshold,
+                psmgd_dynamic_metric=args.psmgd_dynamic_metric,
+                psmgd_dynamic_direction=psmgd_dynamic_direction,
             ),
             fairgrad=dict(
                 alpha=args.alpha,

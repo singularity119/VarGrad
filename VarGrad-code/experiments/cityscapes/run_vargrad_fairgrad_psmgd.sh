@@ -3,8 +3,7 @@ set -euo pipefail
 
 REPO_ROOT="${REPO_ROOT:-/root/VarGrad/VarGrad-code}"
 DATA_ROOT="${DATA_ROOT:-/root/autodl-tmp/dataset/cityscapes2}"
-SAVE_DIR="${SAVE_DIR:-/root/autodl-tmp/exp_logs_save/vargrad_reimpl/cityscapes/save}"
-LOG_ROOT="${LOG_ROOT:-/root/autodl-tmp/exp_logs_save/vargrad_reimpl/cityscapes/log}"
+BASE_OUTPUT_ROOT="${BASE_OUTPUT_ROOT:-/root/autodl-tmp/exp_logs_save/vargrad_reimpl/cityscapes}"
 
 method="${METHOD:-fairgrad}"
 preprocessing="${PREPROCESSING:-vargrad}"
@@ -57,6 +56,12 @@ save_u_telemetry="${SAVE_U_TELEMETRY:-false}"
 post_step_train_forward="${POST_STEP_TRAIN_FORWARD:-false}"
 python_bin="${PYTHON_BIN:-/root/miniconda3/bin/python}"
 
+run_stamp="${RUN_STAMP:-$(date +%Y%m%d_%H%M%S)}"
+round_name="${ROUND_NAME:-round_${run_stamp}}"
+RUN_ROOT="${RUN_ROOT:-${BASE_OUTPUT_ROOT}/rounds/${round_name}}"
+SAVE_DIR="${SAVE_DIR:-${RUN_ROOT}/save}"
+LOG_ROOT="${LOG_ROOT:-${RUN_ROOT}/log}"
+
 mkdir -p "$SAVE_DIR"
 mkdir -p "$LOG_ROOT/launch"
 cd "$REPO_ROOT/experiments/cityscapes"
@@ -97,3 +102,4 @@ nohup "$python_bin" -u trainer.py \
   > "$log_file" 2>&1 < /dev/null &
 
 echo "Started Cityscapes run: $log_file"
+echo "Run root: $RUN_ROOT"

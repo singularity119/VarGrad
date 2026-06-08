@@ -1468,6 +1468,199 @@ class FairGradOriginal(WeightMethod):
         return None, {"GTG": GTG, "weights": w}  # NOTE: to align with all other weight methods
 
 
+class FairGradOriginalComposable(FairGradOriginal):
+    def __init__(
+        self,
+        n_tasks,
+        device: torch.device,
+        alpha=1.0,
+        max_norm=1.0,
+        preprocessing="vargrad",
+        solver="fairgrad",
+        scheduler="every_step",
+        beta=0.85,
+        psmgd_R=10,
+        psmgd_alpha=0.5,
+        psmgd_dynamic_threshold=1.0164316892623901,
+        psmgd_dynamic_metric="refresh_rel_fro",
+        psmgd_dynamic_direction="below",
+    ):
+        super().__init__(
+            n_tasks=n_tasks,
+            device=device,
+            alpha=alpha,
+            max_norm=max_norm,
+        )
+        if preprocessing not in ["identity", "vargrad"]:
+            raise ValueError(f"unknown preprocessing {preprocessing}.")
+        if solver != "fairgrad":
+            raise ValueError(
+                "FairGradOriginalComposable currently supports only solver=fairgrad."
+            )
+        if scheduler not in ["every_step", "psmgd_periodic", "psmgd_dynamic"]:
+            raise ValueError(f"unknown scheduler {scheduler}.")
+        if psmgd_dynamic_metric not in ["refresh_rel_fro", "step_rel_fro"]:
+            raise ValueError(f"unknown psmgd_dynamic_metric {psmgd_dynamic_metric}.")
+        if psmgd_dynamic_direction not in ["above", "below"]:
+            raise ValueError(
+                f"unknown psmgd_dynamic_direction {psmgd_dynamic_direction}."
+            )
+
+        self.preprocessing = preprocessing
+        self.solver = solver
+        self.scheduler = scheduler
+        self.beta = beta
+        self.gamma = 1.0
+        self.psmgd_R = psmgd_R
+        self.psmgd_alpha = psmgd_alpha
+        self.psmgd_dynamic_threshold = psmgd_dynamic_threshold
+        self.psmgd_dynamic_metric = psmgd_dynamic_metric
+        self.psmgd_dynamic_direction = psmgd_dynamic_direction
+        self.weights = torch.ones(n_tasks, device=device, dtype=torch.float32)
+        self.last_candidate_weights = self.weights.clone()
+        self.prev_solver_task_grads = None
+        self.last_refresh_task_grads = None
+        self.last_refresh_step = -1
+
+    _scheduler_step = FairGrad._scheduler_step
+    _compute_step_rel_fro = FairGrad._compute_step_rel_fro
+    _compute_refresh_rel_fro = FairGrad._compute_refresh_rel_fro
+    _compute_dynamic_refresh_score = FairGrad._compute_dynamic_refresh_score
+    _should_call_solver = FairGrad._should_call_solver
+    _apply_scheduler = FairGrad._apply_scheduler
+    _build_u_telemetry = FairGrad._build_u_telemetry
+    _to_parameter_list = staticmethod(FairGrad._to_parameter_list)
+    _float = staticmethod(FairGrad._float)
+    _float_list = staticmethod(FairGrad._float_list)
+
+    def _collect_shared_task_grads(self, losses, shared_parameters):
+        grad_dims = []
+        for param in shared_parameters:
+            grad_dims.append(param.data.numel())
+        grads = torch.Tensor(sum(grad_dims), self.n_tasks).to(self.device)
+
+        for i in range(self.n_tasks):
+            if i < self.n_tasks - 1:
+                losses[i].backward(retain_graph=True)
+            else:
+                losses[i].backward()
+            self.grad2vec(shared_parameters, grads, grad_dims, i)
+            for p in shared_parameters:
+                p.grad = None
+
+        return grads, grad_dims
+
+    def _apply_preprocessing(self, raw_task_grads):
+        if self.preprocessing != "vargrad":
+            return raw_task_grads
+        solver_task_grads, self.last_grads, self.exp_avg = Vargrad(
+            raw_task_grads,
+            last_grads=self.last_grads,
+            exp_avg=self.exp_avg,
+            step=self.step,
+            beta=self.beta,
+            gamma=self.gamma,
+            eps=EPS,
+        )
+        return solver_task_grads
+
+    def get_weighted_loss(
+        self,
+        losses,
+        shared_parameters,
+        **kwargs,
+    ):
+        shared_parameters = self._to_parameter_list(shared_parameters)
+        extra_outputs = dict()
+        if not shared_parameters:
+            task_weights = self.weights.detach()
+            weighted_loss = torch.sum(losses * task_weights)
+            extra_outputs["weights"] = task_weights.detach().clone()
+            extra_outputs["candidate_weights"] = self.last_candidate_weights.detach().clone()
+            extra_outputs["updated_weights"] = False
+            extra_outputs["solver_called"] = False
+            extra_outputs["scheduler_step"] = self._scheduler_step()
+            return weighted_loss, extra_outputs
+
+        raw_task_grads, grad_dims = self._collect_shared_task_grads(
+            losses, shared_parameters
+        )
+        solver_task_grads = self._apply_preprocessing(raw_task_grads)
+        scheduler_step = self._scheduler_step()
+        (
+            solver_called,
+            dynamic_refresh_triggered,
+            dynamic_refresh_score,
+        ) = self._should_call_solver(solver_task_grads, scheduler_step)
+
+        if solver_called:
+            _, GTG, w_cpu = self.fairgrad(solver_task_grads, alpha=self.alpha)
+            candidate_weights = torch.from_numpy(w_cpu.astype(np.float32)).to(self.device)
+            task_weights, updated_weights = self._apply_scheduler(candidate_weights)
+        else:
+            GTG = solver_task_grads.t().mm(solver_task_grads).detach().cpu().numpy()
+            candidate_weights = self.last_candidate_weights
+            task_weights = self.weights
+            updated_weights = False
+
+        grad_update = (
+            solver_task_grads * task_weights.detach().view(1, -1)
+        ).sum(dim=1)
+
+        u_telemetry = self._build_u_telemetry(
+            solver_task_grads=solver_task_grads,
+            task_weights=task_weights,
+            candidate_weights=self.last_candidate_weights,
+            scheduler_step=scheduler_step,
+            updated_weights=updated_weights,
+            solver_called=solver_called,
+            dynamic_refresh_triggered=dynamic_refresh_triggered,
+            dynamic_refresh_score=dynamic_refresh_score,
+        )
+        self.step += 1
+        self.overwrite_grad(shared_parameters, grad_update, grad_dims)
+
+        weighted_loss = torch.sum(losses * task_weights.detach())
+        extra_outputs["GTG"] = GTG
+        extra_outputs["weights"] = task_weights.detach().clone()
+        extra_outputs["candidate_weights"] = self.last_candidate_weights.detach().clone()
+        extra_outputs["updated_weights"] = updated_weights
+        extra_outputs["solver_called"] = solver_called
+        extra_outputs["scheduler_step"] = scheduler_step
+        extra_outputs["preprocessing"] = self.preprocessing
+        extra_outputs["solver"] = self.solver
+        extra_outputs["scheduler"] = self.scheduler
+        extra_outputs["dynamic_refresh_metric"] = self.psmgd_dynamic_metric
+        extra_outputs["dynamic_refresh_direction"] = self.psmgd_dynamic_direction
+        extra_outputs["dynamic_refresh_score"] = float(dynamic_refresh_score)
+        extra_outputs["dynamic_refresh_threshold"] = float(
+            self.psmgd_dynamic_threshold
+        )
+        extra_outputs["dynamic_refresh_triggered"] = dynamic_refresh_triggered
+        extra_outputs["u_telemetry"] = u_telemetry
+        extra_outputs["raw_shared_grad_norms"] = raw_task_grads.norm(dim=0).detach().cpu()
+        extra_outputs["solver_shared_grad_norms"] = solver_task_grads.norm(dim=0).detach().cpu()
+        return weighted_loss, extra_outputs
+
+    def backward(
+        self,
+        losses: torch.Tensor,
+        parameters: Union[List[torch.nn.parameter.Parameter], torch.Tensor] = None,
+        shared_parameters: Union[
+            List[torch.nn.parameter.Parameter], torch.Tensor
+        ] = None,
+        task_specific_parameters: Union[
+            List[torch.nn.parameter.Parameter], torch.Tensor
+        ] = None,
+        **kwargs,
+    ):
+        shared_parameters = self._to_parameter_list(shared_parameters)
+        _, extra_outputs = self.get_weighted_loss(losses, shared_parameters)
+        if self.max_norm > 0:
+            torch.nn.utils.clip_grad_norm_(shared_parameters, self.max_norm)
+        return None, extra_outputs
+
+
 class GradDrop(WeightMethod):
     def __init__(self, n_tasks, device: torch.device, max_norm=1.0):
         super().__init__(n_tasks, device=device)
@@ -1962,6 +2155,7 @@ METHODS = dict(
     famo=FAMO,
     fairgrad=FairGrad,
     fairgrad_original=FairGradOriginal,
+    fairgrad_original_composable=FairGradOriginalComposable,
 )
 
 
