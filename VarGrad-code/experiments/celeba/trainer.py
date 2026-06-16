@@ -65,13 +65,18 @@ def main(path, lr, bs, device):
     val_set   = CelebaDataset(data_dir=path, split='val')
     test_set  = CelebaDataset(data_dir=path, split='test')
 
+    # train_loader = torch.utils.data.DataLoader(
+    #         dataset=train_set, batch_size=bs, shuffle=True, num_workers=2)
+    # val_loader = torch.utils.data.DataLoader(
+    #         dataset=val_set, batch_size=bs, shuffle=False, num_workers=2)
+    # test_loader = torch.utils.data.DataLoader(
+    #         dataset=test_set, batch_size=bs, shuffle=False, num_workers=2)
     train_loader = torch.utils.data.DataLoader(
-            dataset=train_set, batch_size=bs, shuffle=True, num_workers=2)
+            dataset=train_set, batch_size=bs, shuffle=True)
     val_loader = torch.utils.data.DataLoader(
-            dataset=val_set, batch_size=bs, shuffle=False, num_workers=2)
+            dataset=val_set, batch_size=bs, shuffle=False)
     test_loader = torch.utils.data.DataLoader(
-            dataset=test_set, batch_size=bs, shuffle=False, num_workers=2)
-
+            dataset=test_set, batch_size=bs, shuffle=False)
     # optimizer
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
     epochs    = args.n_epochs

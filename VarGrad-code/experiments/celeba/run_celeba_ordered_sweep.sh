@@ -244,10 +244,10 @@ summary_path = Path(sys.argv[2])
 
 groups = [
     ("vargrad+fairgrad+every_step", "vargrad_reimpl_vargrad_beta0.85_fairgrad_alpha2.0_every_step_sd{}", None),
-    ("vargrad+fairgrad+psmgd_dynamic_above10%", "vargrad_reimpl_vargrad_beta0.85_fairgrad_alpha2.0_psmgd_dynamic_step_rel_fro_above_thr1.76_a0.5_sd{}", "dynamic"),
+    ("vargrad+fairgrad+psmgd_dynamic_above10%", "vargrad_reimpl_vargrad_beta0.85_fairgrad_alpha2.0_psmgd_dynamic_step_rel_fro_above_thr1.44_a0.5_sd{}", "dynamic"),
     ("vargrad+fairgrad+psmgd_periodic_R5", "vargrad_reimpl_vargrad_beta0.85_fairgrad_alpha2.0_psmgd_R5_a0.5_sd{}", "R5"),
     ("none+fairgrad+every_step", "vargrad_reimpl_identity_beta0.85_fairgrad_alpha2.0_every_step_sd{}", None),
-    ("none+fairgrad+psmgd_dynamic_above10%", "vargrad_reimpl_identity_beta0.85_fairgrad_alpha2.0_psmgd_dynamic_step_rel_fro_above_thr1.76_a0.5_sd{}", "dynamic"),
+    ("none+fairgrad+psmgd_dynamic_above10%", "vargrad_reimpl_identity_beta0.85_fairgrad_alpha2.0_psmgd_dynamic_step_rel_fro_above_thr1.44_a0.5_sd{}", "dynamic"),
 ]
 
 rows = ["group\tseed\tbest_epoch\tdelta_m\tmean_f1\tsolver_calls\tmean_interval\trounded_R\tstats_path\ttelemetry_path"]
@@ -316,11 +316,11 @@ PY
 : > "$STATE_FILE"
 printf "group\tseed\tgpu\tpid\tstem\tlog_file\n" > "$STATE_FILE"
 
-run_group "01_vargrad_fairgrad_every_step" "vargrad" "every_step" "10" "step_rel_fro" "above" "1.76" "false"
-run_group "02_vargrad_fairgrad_dynamic_above10" "vargrad" "psmgd_dynamic" "10" "step_rel_fro" "above" "1.76" "true"
-run_group "03_vargrad_fairgrad_periodic_R5" "vargrad" "psmgd_periodic" "5" "step_rel_fro" "above" "1.76" "false"
-run_group "04_identity_fairgrad_every_step" "identity" "every_step" "10" "step_rel_fro" "above" "1.76" "false"
-run_group "05_identity_fairgrad_dynamic_above10" "identity" "psmgd_dynamic" "10" "step_rel_fro" "above" "1.76" "true"
+run_group "01_vargrad_fairgrad_every_step" "vargrad" "every_step" "10" "step_rel_fro" "above" "1.44" "false"
+run_group "02_vargrad_fairgrad_dynamic_above10" "vargrad" "psmgd_dynamic" "10" "step_rel_fro" "above" "1.44" "true"
+run_group "03_vargrad_fairgrad_periodic_R5" "vargrad" "psmgd_periodic" "5" "step_rel_fro" "above" "1.44" "false"
+run_group "04_identity_fairgrad_every_step" "identity" "every_step" "10" "step_rel_fro" "above" "1.44" "false"
+run_group "05_identity_fairgrad_dynamic_above10" "identity" "psmgd_dynamic" "10" "step_rel_fro" "above" "1.44" "true"
 
 write_summary
 echo "[batch] completed_at=$(date -Is)"
