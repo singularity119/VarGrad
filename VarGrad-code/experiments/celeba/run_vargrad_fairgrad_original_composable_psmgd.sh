@@ -14,7 +14,8 @@ scheduler="${SCHEDULER:-psmgd_periodic}"
 beta="${BETA:-0.9}"
 alpha="${ALPHA:-2.0}"
 psmgd_R="${PSMGD_R:-10}"
-psmgd_alpha="${PSMGD_ALPHA:-0.5}"
+# psmgd_alpha="${PSMGD_ALPHA:-0.5}"
+psmgd_alpha="${PSMGD_ALPHA:-0.9}"
 psmgd_dynamic_metric="${PSMGD_DYNAMIC_METRIC:-step_rel_fro}"
 
 if [[ -n "${PSMGD_DYNAMIC_DIRECTION:-}" ]]; then
