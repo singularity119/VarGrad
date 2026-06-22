@@ -266,27 +266,27 @@ def main(
     if u_telemetry_file is not None:
         u_telemetry_file.close()
 
-    # add metrics
-    print("Final Performance: ")
-    final_performance = [
-        np.mean(avg_cost[-10:, 13]),  # Test Loss (Avg)
-        *np.mean(avg_cost[-10:, 14:25], axis=0),  # Test Task Losses (11 tasks)
-        np.mean(deltas[-10:])  # Test Delta_m
-    ]
+    # # add metrics
+    # print("Final Performance: ")
+    # final_performance = [
+    #     np.mean(avg_cost[-10:, 13]),  # Test Loss (Avg)
+    #     *np.mean(avg_cost[-10:, 14:25], axis=0),  # Test Task Losses (11 tasks)
+    #     np.mean(deltas[-10:])  # Test Delta_m
+    # ]
 
-    print('TEST: {:.4f} {:.4f} {:.4f} {:.4f} {:.4f} {:.4f} {:.4f} {:.4f} {:.4f} {:.4f} {:.4f} {:.4f} {:.4f}'
-          .format(*final_performance))
+    # print('TEST: {:.4f} {:.4f} {:.4f} {:.4f} {:.4f} {:.4f} {:.4f} {:.4f} {:.4f} {:.4f} {:.4f} {:.4f} {:.4f}'
+    #       .format(*final_performance))
 
        # Final metrics report
     print("\n" + "="*30)
     print(f"Final Performance (Epoch {epoch}):")
     print(f"Test Loss: {test_loss:.4f}")
     print(f"Test Delta: {test_delta:.4f}")
-    print("-" * 30)
-    print("Best Performance (Based on Val):")
-    print(f"Best Test Loss: {best_test:.4f}")
-    print(f"Best Test Delta: {best_test_delta:.4f}")
-    print("="*30)
+    # print("-" * 30)
+    # print("Best Performance (Based on Val):")
+    # print(f"Best Test Loss: {best_test:.4f}")
+    # print(f"Best Test Delta: {best_test_delta:.4f}")
+    # print("="*30)
 
 if __name__ == "__main__":
     parser = ArgumentParser("QM9", parents=[common_parser])
